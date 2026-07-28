@@ -1,6 +1,5 @@
 import streamlit as st
 import pdfplumber
-import pandas as pd
 import re
 
 # Clean, professional interface configuration
@@ -29,13 +28,13 @@ if uploaded_file is not None:
     try:
         with pdfplumber.open(uploaded_file) as pdf:
             for page in pdf.pages:
-                # x_tolerance and y_tolerance handle skewed or slightly misaligned text in tables
-                text = page.extract_text(x_tolerance=2, y_tolerance=3)
+                # Wczytywanie tekstu ze zbalansowaną tolerancją na przesunięcia pionowe
+                text = page.extract_text(y_tolerance=3) 
                 if text:
                     lines = text.split('\n')
                     for line in lines:
-                        # Searching for DG class and weights
-                        match = re.search(r'\b(1\.4S|2\.1|2\.2|3|4\.1|4\.2|5\.1|5\.2|6\.1|8|9)\b.*\s+(\d+\.\d{2})\s+(\d+\.\d{2})\s+', line)
+                        # Wysoce elastyczny wzorzec: szuka klasy DG, dowolnych znaków i pierwszych dwóch liczb zmiennoprzecinkowych
+                        match = re.search(r'\b(1\.4S|1\.4G|2\.1|2\.2|2\.3|3|4\.1|4\.2|4\.3|5\.1|5\.2|6\.1|6\.2|7|8|9)\b.*?(\d+\.\d{1,2})\s+(\d+\.\d{1,2})', line)
                         
                         if match:
                             dg_class = match.group(1)
@@ -48,17 +47,17 @@ if uploaded_file is not None:
                                 
                             total_cargo += net_wt
 
-        st.success("Analysis completed successfully!")
-        
-        st.subheader("Weight summary by class:")
         if totals:
+            st.success("Analysis completed successfully!")
+            
+            st.subheader("Weight summary by class:")
             for dg_class in sorted(totals.keys()):
                 st.write(f"**Class {dg_class}**: {totals[dg_class]:.2f} kg")
             
             st.markdown("---")
             st.subheader(f"**Total weight of total dg cargo:** {total_cargo:.2f} kg")
         else:
-            st.warning("No cargo data found in the standard format. Please ensure this is the correct document or that the scan quality is clear.")
+            st.warning("No cargo data found. Please ensure this is the correct document or that the scan quality is clear.")
 
     except Exception as e:
         st.error(f"An error occurred while reading the file: {e}")
