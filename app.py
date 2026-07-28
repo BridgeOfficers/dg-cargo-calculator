@@ -1,8 +1,9 @@
 import streamlit as st
-import pdfplumber
+from pdf2image import convert_from_bytes
+import pytesseract
 import re
 
-st.set_page_config(page_title="DG Cargo Calculator", page_icon="🌊", layout="centered")
+st.set_page_config(page_title="DG Cargo Calculator | Vision", page_icon="🌊", layout="centered")
 
 st.markdown("""
     <style>
@@ -13,60 +14,65 @@ st.markdown("""
     </style>
 """, unsafe_allow_html=True)
 
-st.title("DG Cargo Weight Calculator 🌊")
-st.write("Upload the DFDS Stowage Plan (PDF) to automatically calculate net weights.")
+st.title("DG Cargo Weight Calculator (OCR) 🌊")
+st.write("Optical Character Recognition active. Upload scanned DFDS Stowage Plan.")
 
-uploaded_file = st.file_uploader("Drag and drop PDF file here", type="pdf")
+uploaded_file = st.file_uploader("Drag and drop scanned PDF here", type="pdf")
 
 if uploaded_file is not None:
-    st.info("Scanning document... Diagnostic Mode active.")
+    st.info("Initializing OCR vision engine... This will take 10-20 seconds per page.")
     
     totals = {}
     total_cargo = 0.0
     raw_text = ""
     
     try:
-        with pdfplumber.open(uploaded_file) as pdf:
-            for page in pdf.pages:
-                # Wczytywanie z dużą tolerancją na przesunięcia
-                text = page.extract_text(x_tolerance=3, y_tolerance=3)
-                if text:
-                    raw_text += text + "\n---PAGE BREAK---\n"
-                    lines = text.split('\n')
-                    for line in lines:
-                        # Szukamy klasy
-                        match = re.search(r'\b(1\.4S|1\.4G|2\.1|2\.2|2\.3|3|4\.1|4\.2|4\.3|5\.1|5\.2|6\.1|6\.2|7|8|9)\b', line)
+        # Przekształcenie płaskiego PDF w mapę bitową (obrazy)
+        images = convert_from_bytes(uploaded_file.read())
+        
+        for img in images:
+            # Silnik optyczny Tesseract czyta tekst ze zdjęcia
+            text = pytesseract.image_to_string(img)
+            raw_text += text + "\n"
+            
+            lines = text.split('\n')
+            for line in lines:
+                # Szukamy klasy DG na odczytanym obrazie
+                match = re.search(r'\b(1\.4S|1\.4G|2\.1|2\.2|2\.3|3|4\.1|4\.2|4\.3|5\.1|5\.2|6\.1|6\.2|7|8|9)\b', line)
+                
+                if match:
+                    dg_class = match.group(1)
+                    # Wyciągamy liczby, akceptując kropki i przecinki (błędy OCR)
+                    nums = re.findall(r'\d+[\.,]\d{1,3}', line)
+                    
+                    if len(nums) >= 2:
+                        net_wt = float(nums[-2].replace(',', '.'))
+                    elif len(nums) == 1:
+                        net_wt = float(nums[0].replace(',', '.'))
+                    else:
+                        continue
                         
-                        if match:
-                            dg_class = match.group(1)
-                            # Wyciągamy wszystkie liczby zmiennoprzecinkowe z tej samej linii
-                            nums = re.findall(r'\d+\.\d{1,3}', line)
-                            
-                            if len(nums) >= 2:
-                                net_wt = float(nums[-2]) # Przedostatnia liczba to zazwyczaj Net Wt
-                            elif len(nums) == 1:
-                                net_wt = float(nums[0])
-                            else:
-                                continue
-                                
-                            if dg_class in totals:
-                                totals[dg_class] += net_wt
-                            else:
-                                totals[dg_class] = net_wt
-                                
-                            total_cargo += net_wt
+                    if dg_class in totals:
+                        totals[dg_class] += net_wt
+                    else:
+                        totals[dg_class] = net_wt
+                        
+                    total_cargo += net_wt
 
         if totals:
-            st.success("Analysis completed successfully!")
+            st.success("Vision Analysis completed successfully!")
             st.subheader("Weight summary by class:")
             for dg_class in sorted(totals.keys()):
                 st.write(f"**Class {dg_class}**: {totals[dg_class]:.2f} kg")
             
             st.markdown("---")
             st.subheader(f"**Total weight of total dg cargo:** {total_cargo:.2f} kg")
+            
+            with st.expander("CHECK RAW OCR TEXT"):
+                st.text_area("Machine Vision Output:", raw_text, height=300)
         else:
-            st.warning("No cargo data found. Check the raw text below to see what the machine reads.")
-            st.text_area("RAW PDF TEXT (Skopiuj ten tekst):", raw_text, height=300)
+            st.warning("OCR could not format the cargo data. Check the raw vision text below.")
+            st.text_area("RAW OCR TEXT (Copy this for diagnostics):", raw_text, height=400)
 
     except Exception as e:
-        st.error(f"An error occurred while reading the file: {e}")
+        st.error(f"Critical System Error: {e}")
