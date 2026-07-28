@@ -1,9 +1,9 @@
 import streamlit as st
-from pypdf import PdfReader
+import fitz  # PyMuPDF
 import re
 
-# Konfiguracja jasnego, profesjonalnego interfejsu (Luminous / Bright & Expensive)
-st.set_page_config(page_title="DG Cargo Calculator", page_icon="🌊", layout="centered")
+# Konfiguracja środowiska Premium (Luminous, Bright & Expensive)
+st.set_page_config(page_title="DG Cargo Calculator | Ultimate", page_icon="🌊", layout="centered")
 
 st.markdown("""
     <style>
@@ -15,31 +15,37 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 st.title("DG Cargo Weight Calculator 🌊")
-st.write("Wersja Premium. Żadnego logowania. Wgraj manifest DFDS (PDF), a system automatycznie zsumuje wagi netto.")
+st.write("Silnik PyMuPDF. Precyzyjna ekstrakcja danych operacyjnych z manifestów DFDS.")
 
 uploaded_file = st.file_uploader("Przeciągnij plik PDF tutaj", type="pdf")
 
 if uploaded_file is not None:
     totals = {}
     total_cargo = 0.0
+    raw_text_dump = ""
     
     try:
-        reader = PdfReader(uploaded_file)
-        for page in reader.pages:
-            text = page.extract_text()
+        # Wczytywanie pliku przez potężny silnik PyMuPDF bezpośrednio z pamięci
+        doc = fitz.open(stream=uploaded_file.read(), filetype="pdf")
+        
+        for page in doc:
+            # Wymuszenie sortowania fizycznego (łączy rozstrzelone tabele w logiczne rzędy)
+            text = page.get_text("text", sort=True)
             if text:
+                raw_text_dump += text + "\n---PAGE BREAK---\n"
                 lines = text.split('\n')
+                
                 for line in lines:
-                    # 1. Szukamy, czy w linii jest podana klasa DG
+                    # 1. Brutalne przeszukanie wiersza w poszukiwaniu klasy DG
                     class_match = re.search(r'\b(1\.4S|1\.4G|2\.1|2\.2|2\.3|3|4\.1|4\.2|4\.3|5\.1|5\.2|6\.1|6\.2|7|8|9)\b', line)
                     
-                    # 2. Szukamy wyłącznie liczb w formacie wagi (zawsze dwa miejsca po przecinku)
+                    # 2. Wyciągnięcie z tego samego wiersza liczb zmiennoprzecinkowych (format wag DFDS)
                     weights = re.findall(r'\b\d+\.\d{2}\b', line)
                     
-                    # 3. Jeśli mamy klasę i przynajmniej dwie wagi (Net Wt. oraz Gross Wt.)
+                    # 3. Akceptacja wiersza tylko wtedy, gdy system widzi klasę i przynajmniej dwie wagi 
                     if class_match and len(weights) >= 2:
                         dg_class = class_match.group(1)
-                        # W manifestach DFDS pierwsza waga z dwoma miejscami po przecinku to zawsze Net Wt.
+                        # System DFDS wyrzuca Net Wt jako pierwszą z wartości wagowych
                         net_wt = float(weights[0]) 
                         
                         if dg_class in totals:
@@ -50,7 +56,7 @@ if uploaded_file is not None:
                         total_cargo += net_wt
 
         if totals:
-            st.success("Analiza zakończona sukcesem!")
+            st.success("Analiza zakończona z pełną precyzją.")
             st.subheader("Podsumowanie wag według klas:")
             for dg_class in sorted(totals.keys()):
                 st.write(f"**Klasa {dg_class}**: {totals[dg_class]:.2f} kg")
@@ -58,7 +64,10 @@ if uploaded_file is not None:
             st.markdown("---")
             st.subheader(f"**Total weight of total dg cargo:** {total_cargo:.2f} kg")
         else:
-            st.warning("Nie znalazłem żadnych wag w tym pliku. Skrypt działa, ale PDF nie posiada warstwy tekstowej z wagami w standardowym formacie.")
+            st.warning("Silnik PyMuPDF odczytał plik, ale tabele nie złożyły się w standardowe wiersze. Rozwiń panel diagnostyczny poniżej.")
             
+        with st.expander("DIAGNOSTYKA SYSTEMU (RAW TEXT)"):
+            st.text_area("Czysty zrzut pamięci z rdzenia PyMuPDF:", raw_text_dump, height=300)
+
     except Exception as e:
-        st.error(f"Błąd systemu: {e}")
+        st.error(f"Krytyczny błąd systemu: {e}")
