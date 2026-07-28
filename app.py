@@ -3,7 +3,7 @@ import pdfplumber
 import pandas as pd
 import re
 
-# Konfiguracja jasnego, profesjonalnego interfejsu
+# Clean, professional interface configuration
 st.set_page_config(page_title="DG Cargo Calculator", page_icon="🌊", layout="centered")
 
 st.markdown("""
@@ -16,12 +16,12 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 st.title("DG Cargo Weight Calculator 🌊")
-st.write("Wgraj manifest DFDS Stowage Plan (PDF), aby automatycznie zsumować wagi netto.")
+st.write("Upload the DFDS Stowage Plan (PDF) to automatically calculate net weights.")
 
-uploaded_file = st.file_uploader("Przeciągnij plik PDF tutaj", type="pdf")
+uploaded_file = st.file_uploader("Drag and drop PDF file here", type="pdf")
 
 if uploaded_file is not None:
-    st.info("Skanowanie dokumentu... To potrwa kilka sekund.")
+    st.info("Scanning document... This will take a few seconds.")
     
     totals = {}
     total_cargo = 0.0
@@ -29,14 +29,12 @@ if uploaded_file is not None:
     try:
         with pdfplumber.open(uploaded_file) as pdf:
             for page in pdf.pages:
-                text = page.extract_text()
+                # x_tolerance and y_tolerance handle skewed or slightly misaligned text in tables
+                text = page.extract_text(x_tolerance=2, y_tolerance=3)
                 if text:
-                    # Rozdzielamy tekst na linie
                     lines = text.split('\n')
                     for line in lines:
-                        # Szukamy linii, które wyglądają jak wpis ładunku
-                        # Typowy format: [Class] ... [Net Wt] [Gross Wt]
-                        # Szukamy wzorca, w którym mamy klasę (np. 3, 2.1, 8, 9, 5.2, 4.1) oraz wagi.
+                        # Searching for DG class and weights
                         match = re.search(r'\b(1\.4S|2\.1|2\.2|3|4\.1|4\.2|5\.1|5\.2|6\.1|8|9)\b.*\s+(\d+\.\d{2})\s+(\d+\.\d{2})\s+', line)
                         
                         if match:
@@ -50,17 +48,17 @@ if uploaded_file is not None:
                                 
                             total_cargo += net_wt
 
-        st.success("Analiza zakończona sukcesem!")
+        st.success("Analysis completed successfully!")
         
-        st.subheader("Podsumowanie wag według klas:")
+        st.subheader("Weight summary by class:")
         if totals:
             for dg_class in sorted(totals.keys()):
-                st.write(f"**Klasa {dg_class}**: {totals[dg_class]:.2f} kg")
+                st.write(f"**Class {dg_class}**: {totals[dg_class]:.2f} kg")
             
             st.markdown("---")
             st.subheader(f"**Total weight of total dg cargo:** {total_cargo:.2f} kg")
         else:
-            st.warning("Nie znaleziono danych o ładunkach w standardowym formacie. Upewnij się, że to właściwy dokument.")
+            st.warning("No cargo data found in the standard format. Please ensure this is the correct document or that the scan quality is clear.")
 
     except Exception as e:
-        st.error(f"Wystąpił błąd podczas czytania pliku: {e}")
+        st.error(f"An error occurred while reading the file: {e}")
