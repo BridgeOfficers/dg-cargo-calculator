@@ -1,9 +1,9 @@
 import streamlit as st
-from pdf2image import convert_from_bytes
-import pytesseract
+from pypdf import PdfReader
 import re
 
-st.set_page_config(page_title="DG Cargo Calculator | Vision", page_icon="🌊", layout="centered")
+# Konfiguracja jasnego, profesjonalnego interfejsu (Luminous / Bright & Expensive)
+st.set_page_config(page_title="DG Cargo Calculator", page_icon="🌊", layout="centered")
 
 st.markdown("""
     <style>
@@ -14,65 +14,51 @@ st.markdown("""
     </style>
 """, unsafe_allow_html=True)
 
-st.title("DG Cargo Weight Calculator (OCR) 🌊")
-st.write("Optical Character Recognition active. Upload scanned DFDS Stowage Plan.")
+st.title("DG Cargo Weight Calculator 🌊")
+st.write("Wersja Premium. Żadnego logowania. Wgraj manifest DFDS (PDF), a system automatycznie zsumuje wagi netto.")
 
-uploaded_file = st.file_uploader("Drag and drop scanned PDF here", type="pdf")
+uploaded_file = st.file_uploader("Przeciągnij plik PDF tutaj", type="pdf")
 
 if uploaded_file is not None:
-    st.info("Initializing OCR vision engine... This will take 10-20 seconds per page.")
-    
     totals = {}
     total_cargo = 0.0
-    raw_text = ""
     
     try:
-        # Przekształcenie płaskiego PDF w mapę bitową (obrazy)
-        images = convert_from_bytes(uploaded_file.read())
-        
-        for img in images:
-            # Silnik optyczny Tesseract czyta tekst ze zdjęcia
-            text = pytesseract.image_to_string(img)
-            raw_text += text + "\n"
-            
-            lines = text.split('\n')
-            for line in lines:
-                # Szukamy klasy DG na odczytanym obrazie
-                match = re.search(r'\b(1\.4S|1\.4G|2\.1|2\.2|2\.3|3|4\.1|4\.2|4\.3|5\.1|5\.2|6\.1|6\.2|7|8|9)\b', line)
-                
-                if match:
-                    dg_class = match.group(1)
-                    # Wyciągamy liczby, akceptując kropki i przecinki (błędy OCR)
-                    nums = re.findall(r'\d+[\.,]\d{1,3}', line)
+        reader = PdfReader(uploaded_file)
+        for page in reader.pages:
+            text = page.extract_text()
+            if text:
+                lines = text.split('\n')
+                for line in lines:
+                    # 1. Szukamy, czy w linii jest podana klasa DG
+                    class_match = re.search(r'\b(1\.4S|1\.4G|2\.1|2\.2|2\.3|3|4\.1|4\.2|4\.3|5\.1|5\.2|6\.1|6\.2|7|8|9)\b', line)
                     
-                    if len(nums) >= 2:
-                        net_wt = float(nums[-2].replace(',', '.'))
-                    elif len(nums) == 1:
-                        net_wt = float(nums[0].replace(',', '.'))
-                    else:
-                        continue
+                    # 2. Szukamy wyłącznie liczb w formacie wagi (zawsze dwa miejsca po przecinku)
+                    weights = re.findall(r'\b\d+\.\d{2}\b', line)
+                    
+                    # 3. Jeśli mamy klasę i przynajmniej dwie wagi (Net Wt. oraz Gross Wt.)
+                    if class_match and len(weights) >= 2:
+                        dg_class = class_match.group(1)
+                        # W manifestach DFDS pierwsza waga z dwoma miejscami po przecinku to zawsze Net Wt.
+                        net_wt = float(weights[0]) 
                         
-                    if dg_class in totals:
-                        totals[dg_class] += net_wt
-                    else:
-                        totals[dg_class] = net_wt
-                        
-                    total_cargo += net_wt
+                        if dg_class in totals:
+                            totals[dg_class] += net_wt
+                        else:
+                            totals[dg_class] = net_wt
+                            
+                        total_cargo += net_wt
 
         if totals:
-            st.success("Vision Analysis completed successfully!")
-            st.subheader("Weight summary by class:")
+            st.success("Analiza zakończona sukcesem!")
+            st.subheader("Podsumowanie wag według klas:")
             for dg_class in sorted(totals.keys()):
-                st.write(f"**Class {dg_class}**: {totals[dg_class]:.2f} kg")
+                st.write(f"**Klasa {dg_class}**: {totals[dg_class]:.2f} kg")
             
             st.markdown("---")
             st.subheader(f"**Total weight of total dg cargo:** {total_cargo:.2f} kg")
-            
-            with st.expander("CHECK RAW OCR TEXT"):
-                st.text_area("Machine Vision Output:", raw_text, height=300)
         else:
-            st.warning("OCR could not format the cargo data. Check the raw vision text below.")
-            st.text_area("RAW OCR TEXT (Copy this for diagnostics):", raw_text, height=400)
-
+            st.warning("Nie znalazłem żadnych wag w tym pliku. Skrypt działa, ale PDF nie posiada warstwy tekstowej z wagami w standardowym formacie.")
+            
     except Exception as e:
-        st.error(f"Critical System Error: {e}")
+        st.error(f"Błąd systemu: {e}")
